@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151d">
+  <title>LoL Spy — Шпион среди чемпионов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0c1118;--panel:#141d28;--panel2:#1a2633;--line:#2a3948;--gold:#c8aa6e;--gold2:#f0d9a0;--text:#f2f4f7;--muted:#9eacba;--red:#ef6b72;--green:#6dd6a2}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1a2b3a 0,#0c1118 58%);color:var(--text);font-family:Inter,system-ui,sans-serif;min-height:100vh}
+    button,input{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font-weight:700;transition:.15s}button:hover{transform:translateY(-1px);filter:brightness(1.08)}button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+    .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px}.brand{display:flex;align-items:center;gap:12px;margin-bottom:28px}.crest{width:44px;height:44px;border:1px solid var(--gold);display:grid;place-items:center;color:var(--gold2);font-size:22px;transform:rotate(45deg);border-radius:8px}.crest span{transform:rotate(-45deg)}.brand h1{font-size:18px;letter-spacing:.14em;margin:0}.brand p{margin:4px 0 0;color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+    .hero{padding:25px 0 28px}.eyebrow{color:var(--gold);font-weight:800;font-size:11px;letter-spacing:.22em;text-transform:uppercase}.hero h2{font-size:clamp(30px,5vw,48px);line-height:1.05;margin:12px 0 14px;max-width:650px}.hero p{color:var(--muted);max-width:600px;line-height:1.65;margin:0}
+    .layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}.panel{background:linear-gradient(145deg,rgba(26,38,51,.96),rgba(17,25,35,.96));border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 18px 45px #0002}.panel h3{margin:0 0 8px;font-size:18px}.panel .sub{color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 20px}
+    label{display:block;font-size:12px;color:#c4ced8;font-weight:700;margin:14px 0 7px}input{width:100%;padding:13px 14px;border:1px solid var(--line);background:#0e151d;color:var(--text);border-radius:9px;outline:none}input:focus{border-color:var(--gold)}.primary{background:var(--gold);color:#141a20}.secondary{background:#263746;color:var(--text);border:1px solid #3a4d5e}.danger{background:#48262c;color:#ffb9bd;border:1px solid #6a333b}.full{width:100%;margin-top:16px}.muted{color:var(--muted)}.notice{display:none;margin:16px 0 0;padding:12px 14px;background:#392329;border:1px solid #74404a;border-radius:9px;color:#ffc5c8;font-size:13px}.notice.show{display:block}
+    .room-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.room-code{font-size:26px;letter-spacing:.2em;color:var(--gold2);font-weight:800}.share{margin-top:10px;display:flex;gap:8px}.share input{font-size:12px}.room-grid{display:grid;grid-template-columns:1fr .9fr;gap:16px;margin-top:16px}.players{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}.players li{display:flex;align-items:center;gap:10px;padding:11px 12px;background:#101923;border:1px solid #253342;border-radius:9px}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}.player-name{flex:1;font-size:14px}.tag{font-size:10px;color:var(--gold2);border:1px solid #64563e;padding:4px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.08em}.role-card{min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at center,#263746,#111923 75%);border:1px solid #344757;border-radius:13px;padding:22px}.role-icon{font-size:34px;margin-bottom:12px}.role-card h3{font-size:23px;margin:0 0 8px}.role-card p{color:var(--muted);font-size:13px;line-height:1.55;margin:0;max-width:270px}.champion{color:var(--gold2)}.spy{color:#ff8c93}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.toolbar button{flex:1}.room-title{font-size:23px;margin:0 0 4px}.hidden{display:none!important}.foot{color:#657584;text-align:center;font-size:11px;margin-top:30px;line-height:1.6}
+    @media(max-width:720px){.layout,.room-grid{grid-template-columns:1fr}.wrap{padding:18px 14px 40px}.hero{padding-top:14px}.panel{padding:18px}.room-head{flex-direction:column}.share{width:100%}.share input{min-width:0}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="brand"><div class="crest"><span>✦</span></div><div><h1>LEAGUE OF SPIES</h1><p>Шпион среди чемпионов</p></div></header>
+  <section id="home">
+    <div class="hero"><div class="eyebrow">Mind games · Runeterra</div><h2>Один из вас не знает,<br>кто чемпион.</h2><p>Все получают одного и того же чемпиона League of Legends — кроме случайно выбранных шпионов. Задавайте вопросы, вычисляйте шпиона и не выдавайте персонажа.</p></div>
+    <div class="layout">
+      <div class="panel"><h3>Создать комнату</h3><p class="sub">Стань ведущим, пригласи друзей по ссылке и начни раунд, когда все будут готовы.</p>
+        <label for="createName">Твой никнейм</label><input id="createName" maxlength="20" placeholder="Например, JinxMain">
+        <label for="spyCountHome">Количество шпионов</label><input id="spyCountHome" type="number" min="1" max="5" value="1">
+        <button class="primary full" id="createBtn">Создать комнату ↗</button>
+      </div>
+      <div class="panel"><h3>Войти по коду</h3><p class="sub">Если тебе прислали ссылку, просто открой её. Или введи код комнаты вручную.</p>
+        <label for="joinName">Твой никнейм</label><input id="joinName" maxlength="20" placeholder="Как тебя называть?">
+        <label for="roomCodeInput">Код комнаты</label><input id="roomCodeInput" maxlength="5" placeholder="ABCDE" style="text-transform:uppercase">
+        <button class="secondary full" id="joinBtn">Подключиться к игре →</button>
+        <div id="homeError" class="notice"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="room" class="hidden">
+    <div class="panel">
+      <div class="room-head"><div><div class="eyebrow">Игровая комната</div><h2 class="room-title" id="roomTitle">Комната</h2><div class="muted" id="statusText">Ожидание игроков</div></div><div><div class="muted" style="font-size:11px;margin-bottom:5px">КОД КОМНАТЫ</div><div class="room-code" id="roomCodeDisplay"></div></div></div>
+      <div class="share"><input id="shareLink" readonly aria-label="Ссылка приглашения"><button class="secondary" id="copyBtn">Копировать ссылку</button></div>
+    </div>
+    <div class="room-grid">
+      <div class="panel"><div class="room-head"><div><h3>Игроки</h3><div class="muted" id="playerCount">0 игроков</div></div><span class="tag" id="hostBadge">Лобби</span></div><ul class="players" id="playersList"></ul>
+        <div id="hostControls" class="hidden">
+          <label for="spyCountRoom">Шпионов в раунде</label><input id="spyCountRoom" type="number" min="1" max="5" value="1">
+          <button class="primary full" id="startBtn">Случайно распределить роли</button>
+          <button class="secondary full hidden" id="revealBtn">Завершить раунд и раскрыть чемпиона</button>
+          <button class="secondary full hidden" id="resetBtn">Новый раунд</button>
+        </div>
+        <button class="danger full" id="leaveBtn">Покинуть комнату</button>
+      </div>
+      <div class="panel"><h3>Твоя роль</h3><p class="sub" id="roleSub">Когда ведущий начнёт игру, твоя роль появится здесь. Не показывай экран другим игрокам.</p>
+        <div class="role-card" id="roleCard"><div class="role-icon">♟</div><h3>Ожидаем начало</h3><p>Минимум 3 игрока. Ведущий запустит раунд, когда все подключатся.</p></div>
+        <div class="notice" id="roomError"></div>
+      </div>
+    </div>
+  </section>
+  <div class="foot">Фанатский проект для игры с друзьями. League of Legends и её персонажи принадлежат Riot Games.<br>Неофициальный проект, не связан с Riot Games.</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let roomCode = null, playerToken = null, playerId = null, pollTimer = null, lastStatus = null;
+function setError(id, msg){ const el=$(id); el.textContent=msg; el.classList.toggle('show',!!msg); }
+async function api(url, method='GET', body=null){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(playerToken) opts.headers['X-Player-Token']=playerToken;
+  if(body) opts.body=JSON.stringify(body);
+  const res=await fetch(url,opts); const data=await res.json().catch(()=>({detail:'Не удалось прочитать ответ сервера'}));
+  if(!res.ok) throw new Error(data.detail || 'Ошибка запроса'); return data;
+}
+function saveSession(){ if(roomCode && playerToken) sessionStorage.setItem('lolspy-session',JSON.stringify({roomCode,playerToken,playerId})); }
+function loadSession(){ try{return JSON.parse(sessionStorage.getItem('lolspy-session')||'null')}catch{return null} }
+function showRoom(code){ roomCode=code.toUpperCase(); $('home').classList.add('hidden'); $('room').classList.remove('hidden'); history.replaceState({},'',`/room/${roomCode}`); $('shareLink').value=location.origin+`/room/${roomCode}`; $('roomCodeDisplay').textContent=roomCode; refresh(); clearInterval(pollTimer); pollTimer=setInterval(refresh,1800); }
+function showHome(){ clearInterval(pollTimer); $('room').classList.add('hidden'); $('home').classList.remove('hidden'); history.replaceState({},'','/'); sessionStorage.removeItem('lolspy-session'); roomCode=null;playerToken=null;playerId=null; }
+async function createRoom(){
+ setError('homeError','');
+ try{const d=await api('/api/rooms','POST',{nickname:$('createName').value,spy_count:Number($('spyCountHome').value||1)});playerToken=d.token;playerId=d.player_id;saveSession();showRoom(d.room.code);}
+ catch(e){setError('homeError',e.message)}
+}
+async function joinRoom(codeOverride=null){
+ setError('homeError',''); const code=(codeOverride||$('roomCodeInput').value).trim().toUpperCase();
+ try{const d=await api(`/api/rooms/${code}/join`,'POST',{nickname:$('joinName').value});playerToken=d.token;playerId=d.player_id;saveSession();showRoom(code);}
+ catch(e){setError('homeError',e.message)}
+}
+async function refresh(){
+ if(!roomCode||!playerToken)return;
+ try{
+  const r=await api(`/api/rooms/${roomCode}`);
+  renderRoom(r);
+ }catch(e){setError('roomError',e.message); if(e.message.includes('не найти игрока')){sessionStorage.removeItem('lolspy-session');}}
+}
+function renderRoom(r){
+ $('roomTitle').textContent=`Комната ${r.code}`; $('roomCodeDisplay').textContent=r.code; $('shareLink').value=location.origin+`/room/${r.code}`;
+ $('playerCount').textContent=`${r.players.length} ${r.players.length===1?'игрок':r.players.length<5?'игрока':'игроков'}`;
+ $('statusText').textContent=r.status==='lobby'?'Ожидание игроков':r.status==='playing'?'Раунд идёт — задавайте вопросы':'Раунд завершён';
+ $('hostBadge').textContent=r.is_host?'Ведущий':'Участник';
+ $('playersList').innerHTML='';
+ r.players.forEach(p=>{const li=document.createElement('li');li.innerHTML=`<span class="dot"></span><span class="player-name"></span>${p.is_host?'<span class="tag">Ведущий</span>':''}${p.is_me?'<span class="tag">Это ты</span>':''}`;li.querySelector('.player-name').textContent=p.name;$('playersList').appendChild(li)});
+ $('hostControls').classList.toggle('hidden',!r.is_host);
+ $('startBtn').classList.toggle('hidden',r.status!=='lobby');$('spyCountRoom').classList.toggle('hidden',r.status!=='lobby');
+ $('revealBtn').classList.toggle('hidden',!(r.is_host&&r.status==='playing'));$('resetBtn').classList.toggle('hidden',!(r.is_host&&r.status==='finished'));
+ if(r.status==='lobby'){
+   $('roleCard').innerHTML='<div class="role-icon">♟</div><h3>Ожидаем начало</h3><p>Минимум 3 игрока. Ведущий запустит раунд, когда все подключатся.</p>';
+   $('roleSub').textContent='Роли случайно распределятся при старте. Не показывай экран другим игрокам.';
+ } else if(r.status==='playing'){
+   if(r.my_role==='spy'){$('roleCard').innerHTML='<div class="role-icon spy">◈</div><h3 class="spy">Ты — шпион</h3><p>Ты не знаешь чемпиона. Слушай ответы, задавай вопросы и постарайся вычислить персонажа, не выдав себя.</p>';$('roleSub').textContent='Твоя роль видна только тебе.'}
+   else{$('roleCard').innerHTML=`<div class="role-icon champion">✦</div><h3 class="champion">${escapeHtml(r.my_role==='champion'?'Ты знаешь чемпиона':'Твоя роль')}</h3><p>Ты не шпион. Чемпиона знают все обычные игроки, но не произноси имя слишком явно.</p>`;$('roleSub').textContent='Твоя роль видна только тебе.'}
+ } else {
+   $('roleCard').innerHTML=`<div class="role-icon champion">✦</div><h3 class="champion">${escapeHtml(r.champion||'Раунд завершён')}</h3><p>Это был загаданный чемпион. Обсудите, кто был шпионом, и запускайте новый раунд.</p>`;
+   $('roleSub').textContent='Чемпион раскрыт.';
+ }
+ setError('roomError','');
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+$('createBtn').onclick=createRoom;
+$('joinBtn').onclick=()=>joinRoom();
+$('roomCodeInput').addEventListener('keydown',e=>{if(e.key==='Enter')joinRoom()});
+$('startBtn').onclick=async()=>{try{setError('roomError','');await api(`/api/rooms/${roomCode}/start`,'POST',{token:playerToken,spy_count:Number($('spyCountRoom').value||1)});await refresh()}catch(e){setError('roomError',e.message)}};
+$('revealBtn').onclick=async()=>{if(!confirm('Завершить раунд и показать чемпиона всем игрокам?'))return;try{await api(`/api/rooms/${roomCode}/reveal`,'POST',{token:playerToken});await refresh()}catch(e){setError('roomError',e.message)}};
+$('resetBtn').onclick=async()=>{try{await api(`/api/rooms/${roomCode}/reset`,'POST',{token:playerToken});await refresh()}catch(e){setError('roomError',e.message)}};
+$('copyBtn').onclick=async()=>{try{await navigator.clipboard.writeText($('shareLink').value);$('copyBtn').textContent='Ссылка скопирована ✓';setTimeout(()=>$('copyBtn').textContent='Копировать ссылку',1600)}catch{$('shareLink').select();document.execCommand('copy')}};
+$('leaveBtn').onclick=async()=>{try{await api(`/api/rooms/${roomCode}/leave`,'POST',{token:playerToken})}catch{}showHome()};
+async function init(){
+ const path=location.pathname.match(/^\/room\/([A-Za-z0-9]+)\/?$/);
+ const saved=loadSession();
+ if(path && saved && saved.roomCode===path[1].toUpperCase()){
+   roomCode=saved.roomCode;playerToken=saved.playerToken;playerId=saved.playerId;
+   try{await api(`/api/rooms/${roomCode}`);showRoom(roomCode);return}catch{sessionStorage.removeItem('lolspy-session')}
+ }
+ if(path){$('roomCodeInput').value=path[1].toUpperCase();$('home').classList.remove('hidden');}
+}
+init();
+</script>
+</body>
+</html>
