@@ -78,6 +78,11 @@ def room_view(room, viewer_token: Optional[str] = None):
         ],
         "is_host": bool(me and me["id"] == room["host_id"]),
         "my_role": me["role"] if me and room["status"] == "playing" else None,
+        "my_champion": (
+            room["champion"]
+            if me and me["role"] != "spy" and room["status"] == "playing"
+            else None
+        ),
     }
 
 

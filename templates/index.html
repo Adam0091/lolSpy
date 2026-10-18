@@ -108,8 +108,21 @@ function renderRoom(r){
    $('roleCard').innerHTML='<div class="role-icon">♟</div><h3>Ожидаем начало</h3><p>Минимум 3 игрока. Ведущий запустит раунд, когда все подключатся.</p>';
    $('roleSub').textContent='Роли случайно распределятся при старте. Не показывай экран другим игрокам.';
  } else if(r.status==='playing'){
-   if(r.my_role==='spy'){$('roleCard').innerHTML='<div class="role-icon spy">◈</div><h3 class="spy">Ты — шпион</h3><p>Ты не знаешь чемпиона. Слушай ответы, задавай вопросы и постарайся вычислить персонажа, не выдав себя.</p>';$('roleSub').textContent='Твоя роль видна только тебе.'}
-   else{$('roleCard').innerHTML=`<div class="role-icon champion">✦</div><h3 class="champion">${escapeHtml(r.my_role==='champion'?'Ты знаешь чемпиона':'Твоя роль')}</h3><p>Ты не шпион. Чемпиона знают все обычные игроки, но не произноси имя слишком явно.</p>`;$('roleSub').textContent='Твоя роль видна только тебе.'}
+   if (r.my_role === 'spy') {
+    $('roleCard').innerHTML =
+        '<div class="role-icon spy">◈</div>' +
+        '<h3 class="spy">Ты — шпион</h3>' +
+        '<p>Ты не знаешь чемпиона. Слушай ответы, задавай вопросы и постарайся вычислить персонажа, не выдав себя.</p>';
+
+    $('roleSub').textContent = 'Твоя роль видна только тебе.';
+} else {
+    $('roleCard').innerHTML =
+        '<div class="role-icon champion">✦</div>' +
+        `<h3 class="champion">${escapeHtml(r.my_champion || 'Чемпион не определён')}</h3>` +
+        '<p>Ты не шпион. Чемпиона знают все обычные игроки, но не произноси имя слишком явно.</p>';
+
+    $('roleSub').textContent = 'Твоя роль видна только тебе.';
+}
  } else {
    $('roleCard').innerHTML=`<div class="role-icon champion">✦</div><h3 class="champion">${escapeHtml(r.champion||'Раунд завершён')}</h3><p>Это был загаданный чемпион. Обсудите, кто был шпионом, и запускайте новый раунд.</p>`;
    $('roleSub').textContent='Чемпион раскрыт.';
