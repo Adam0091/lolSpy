@@ -122,7 +122,11 @@ def get_player(room, token: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+    request=request,
+    name="index.html",
+    context={}
+)
 
 
 @app.get("/api/champions")
@@ -241,7 +245,11 @@ async def leave_room(code: str, data: PlayerAction):
 
 @app.get("/room/{code}", response_class=HTMLResponse)
 async def room_page(request: Request, code: str):
-    return templates.TemplateResponse("index.html", {"request": request, "room_code": code.upper()})
+    return templates.TemplateResponse(
+    request=request,
+    name="index.html",
+    context={"room_code": code.upper()}
+)
 
 
 @app.exception_handler(HTTPException)
