@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+import httpx
 
 APP_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="LoL Spy", description="Онлайн-игра в шпиона по чемпионам League of Legends")
@@ -24,7 +25,7 @@ CHAMPIONS = [
     "Гекарим", "Грагас", "Грейвз", "Гвен", "Дариус", "Джакс", "Джарван IV",
     "Джин", "Джинкс", "Доктор Мундо", "Дрейвен", "Ёнэ", "Ёрик", "Зак",
     "Зед", "Зери", "Зиггс", "Зилеан", "Зои", "Иверн", "Иллаой", "Ирелия",
-    "Иซриал", "Кай'Са", "Кайн", "Калиста", "Камилла", "Кассиопея", "Катарина",
+    "Иезреаль", "Кай'Са", "Кайн", "Калиста", "Камилла", "Кассиопея", "Катарина",
     "Кейл", "Кейтлин", "Кеннен", "Киана", "Киндред", "Клед", "Ког'Мао",
     "Корки", "Ксин Жао", "Ле Блан", "Леона", "Ли Син", "Лилия", "Лиссандра",
     "Лулу", "Люкс", "Мальфит", "Маокай", "Мастер Йи", "Милио", "Мисс Фортуна",
@@ -40,8 +41,116 @@ CHAMPIONS = [
     "Экко", "Элиза", "Эмбер", "Энни", "Эш", "Юми", "Ясуо", "Ярвен",
     "Ярвик", "Ясуо", "Ятэ", "Яone"
 ]
-# Remove duplicate entries while preserving order.
 CHAMPIONS = list(dict.fromkeys(CHAMPIONS))
+DATA_DRAGON_VERSION = None
+CHAMPION_DATA = [{"id": None, "name": name, "title": "", "image": None} for name in CHAMPIONS]
+SKIN_DATA = []
+ITEM_DATA = []
+CATEGORY_LABELS = {"champions": "Чемпионы", "skins": "Скины", "items": "Предметы"}
+
+
+def champion_image_url(champion_id):
+    if not champion_id:
+        return None
+    return f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{champion_id}_0.jpg"
+
+
+def item_image_url(item_id, version=None):
+    if not item_id:
+        return None
+    version = version or DATA_DRAGON_VERSION or "16.18.1"
+    return f"https://ddragon.leagueoflegends.com/cdn/{version}/img/item/{item_id}.png"
+
+
+def clean_item_description(value):
+    import re
+    from html import unescape
+    value = re.sub(r"<br\s*/?>", " ", value or "", flags=re.I)
+    value = re.sub(r"<[^>]+>", "", value)
+    return " ".join(unescape(value).split())
+
+
+@app.on_event("startup")
+async def load_game_data():
+    """Загрузить локализованные данные чемпионов, обликов и предметов из Riot Data Dragon."""
+    global CHAMPION_DATA, CHAMPIONS, SKIN_DATA, ITEM_DATA, DATA_DRAGON_VERSION
+    try:
+        limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, limits=limits) as client:
+            versions_response = await client.get("https://ddragon.leagueoflegends.com/api/versions.json")
+            versions_response.raise_for_status()
+            versions = versions_response.json()
+            if not versions:
+                return
+            version = versions[0]
+            base = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/ru_RU"
+            response = await client.get(f"{base}/champion.json")
+            response.raise_for_status()
+            raw_champions = response.json().get("data", {})
+            champions = [
+                {"id": item["id"], "name": item["name"], "title": item.get("title", ""),
+                 "image": champion_image_url(item["id"])}
+                for item in raw_champions.values() if item.get("id") and item.get("name")
+            ]
+            if champions:
+                CHAMPION_DATA = champions
+                CHAMPIONS = [item["name"] for item in champions]
+                DATA_DRAGON_VERSION = version
+
+            async def get_champion_skins(champ_id):
+                try:
+                    res = await client.get(f"{base}/champion/{champ_id}.json")
+                    res.raise_for_status()
+                    entry = res.json().get("data", {}).get(champ_id, {})
+                    skins = []
+                    for skin in entry.get("skins", []):
+                        if skin.get("num", 0) == 0:
+                            continue
+                        skin_name = skin.get("name") or ""
+                        if skin_name.strip().lower() in {"default", "базовый образ", "образ по умолчанию"}:
+                            continue
+                        skins.append({
+                            "type": "skins",
+                            "name": skin_name,
+                            "champion": entry.get("name", champ_id),
+                            "image": f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{champ_id}_{skin['num']}.jpg",
+                            "description": f"Облик чемпиона {entry.get('name', champ_id)}",
+                        })
+                    return skins
+                except Exception as exc:
+                    print(f"Не удалось загрузить облики {champ_id}: {exc}")
+                    return []
+
+            import asyncio
+            skin_lists = await asyncio.gather(*(get_champion_skins(champ_id) for champ_id in raw_champions.keys()))
+            loaded_skins = [skin for group in skin_lists for skin in group]
+            if loaded_skins:
+                SKIN_DATA = loaded_skins
+
+            item_response = await client.get(f"{base}/item.json")
+            item_response.raise_for_status()
+            raw_items = item_response.json().get("data", {})
+            loaded_items = []
+            for item_id, item in raw_items.items():
+                # Не включаем рецептурные/служебные и недоступные в обычной игре предметы.
+                if not item.get("name") or not item.get("image", {}).get("full"):
+                    continue
+                if item.get("hideFromAll") or not item.get("inStore", True):
+                    continue
+                maps = item.get("maps", {})
+                if maps and not maps.get("11", False):
+                    continue
+                description = clean_item_description(item.get("description") or item.get("plaintext") or "Описание отсутствует.")
+                loaded_items.append({
+                    "type": "items", "id": item_id, "name": item["name"],
+                    "image": item_image_url(item_id, version),
+                    "description": description or item.get("plaintext") or "Описание отсутствует.",
+                    "price": item.get("gold", {}).get("total", 0),
+                })
+            if loaded_items:
+                ITEM_DATA = loaded_items
+    except Exception as exc:
+        print(f"Не удалось загрузить данные из Data Dragon: {exc}. Используются резервные данные чемпионов.")
 
 rooms = {}
 players = {}
@@ -64,7 +173,12 @@ def room_view(room, viewer_token: Optional[str] = None):
         "code": room["code"],
         "status": room["status"],
         "round": room["round"],
-        "champion": room["champion"] if room["status"] == "finished" else None,
+        "champion": room["target_name"] if room["status"] == "finished" else None,
+        "champion_image": room["target_image"] if room["status"] == "finished" else None,
+        "target_type": room["target_type"] if room["status"] == "finished" else None,
+        "target_description": room["target_description"] if room["status"] == "finished" else None,
+        "target_category": CATEGORY_LABELS.get(room["target_type"], "") if room["status"] == "finished" else None,
+        "selected_categories": room.get("selected_categories", ["champions"]),
         "spy_count": room["spy_count"],
         "players": [
             {
@@ -78,11 +192,11 @@ def room_view(room, viewer_token: Optional[str] = None):
         ],
         "is_host": bool(me and me["id"] == room["host_id"]),
         "my_role": me["role"] if me and room["status"] == "playing" else None,
-        "my_champion": (
-            room["champion"]
-            if me and me["role"] != "spy" and room["status"] == "playing"
-            else None
-        ),
+        "my_champion": room["target_name"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_champion_image": room["target_image"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_type": room["target_type"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_description": room["target_description"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_category": CATEGORY_LABELS.get(room["target_type"], "") if me and me["role"] == "champion" and room["status"] == "playing" else None,
     }
 
 
@@ -98,6 +212,7 @@ class JoinRoom(BaseModel):
 class StartGame(BaseModel):
     token: str
     spy_count: int = Field(default=1, ge=1, le=5)
+    categories: list[str] = Field(default_factory=lambda: ["champions"], min_length=1, max_length=3)
 
 
 class PlayerAction(BaseModel):
@@ -127,16 +242,30 @@ def get_player(room, token: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(
-    request=request,
-    name="index.html",
-    context={}
-)
+    return templates.TemplateResponse(request=request, name="index.html", context={})
 
 
 @app.get("/api/champions")
 async def champions():
-    return {"champions": CHAMPIONS}
+    return {
+        "version": DATA_DRAGON_VERSION,
+        "champions": [
+            {"id": item["id"], "name": item["name"], "image": champion_image_url(item["id"])}
+            for item in CHAMPION_DATA
+        ],
+    }
+
+
+@app.get("/api/game-categories")
+async def game_categories():
+    return {
+        "version": DATA_DRAGON_VERSION,
+        "categories": [
+            {"id": "champions", "name": CATEGORY_LABELS["champions"], "count": len(CHAMPION_DATA)},
+            {"id": "skins", "name": CATEGORY_LABELS["skins"], "count": len(SKIN_DATA)},
+            {"id": "items", "name": CATEGORY_LABELS["items"], "count": len(ITEM_DATA)},
+        ],
+    }
 
 
 @app.post("/api/rooms")
@@ -147,7 +276,9 @@ async def create_room(data: CreateRoom):
     token = secrets.token_urlsafe(24)
     room = {
         "code": code, "host_id": pid, "host_token": token, "status": "lobby",
-        "champion": "", "spy_count": data.spy_count, "round": 0, "players": [pid]
+        "champion": "", "champion_id": None, "target_name": "", "target_image": None,
+        "target_type": "champions", "target_description": "", "selected_categories": ["champions"],
+        "spy_count": data.spy_count, "round": 0, "players": [pid]
     }
     rooms[code] = room
     players[pid] = {"id": pid, "room_code": code, "name": name, "token": token, "role": None}
@@ -192,7 +323,22 @@ async def start_game(code: str, data: StartGame):
     if data.spy_count >= count:
         raise HTTPException(400, "Шпионов должно быть меньше, чем игроков.")
     room["spy_count"] = data.spy_count
-    room["champion"] = random.choice(CHAMPIONS)
+    allowed = {"champions", "skins", "items"}
+    categories = list(dict.fromkeys(data.categories))
+    if not categories or any(category not in allowed for category in categories):
+        raise HTTPException(400, "Выберите хотя бы одну допустимую категорию.")
+    pools = {"champions": CHAMPION_DATA, "skins": SKIN_DATA, "items": ITEM_DATA}
+    pool = [dict(item, type=category) for category in categories for item in pools[category]]
+    if not pool:
+        raise HTTPException(503, "Для выбранных категорий не удалось загрузить данные. Проверьте подключение к Data Dragon и попробуйте снова.")
+    target = random.choice(pool)
+    room["target_type"] = target["type"]
+    room["target_name"] = target["name"]
+    room["target_image"] = target.get("image")
+    room["target_description"] = target.get("description", "")
+    room["selected_categories"] = categories
+    room["champion"] = target["name"]
+    room["champion_id"] = target.get("id")
     chosen = set(random.sample(room["players"], data.spy_count))
     for pid in room["players"]:
         players[pid]["role"] = "spy" if pid in chosen else "champion"
@@ -221,6 +367,11 @@ async def reset_room(code: str, data: PlayerAction):
         raise HTTPException(403, "Только создатель комнаты может начать новый раунд.")
     room["status"] = "lobby"
     room["champion"] = ""
+    room["champion_id"] = None
+    room["target_name"] = ""
+    room["target_image"] = None
+    room["target_description"] = ""
+    room["target_type"] = "champions"
     for pid in room["players"]:
         if pid in players:
             players[pid]["role"] = None
@@ -243,6 +394,10 @@ async def leave_room(code: str, data: PlayerAction):
     if room["status"] == "playing":
         room["status"] = "lobby"
         room["champion"] = ""
+        room["target_name"] = ""
+        room["target_image"] = None
+        room["target_description"] = ""
+        room["target_type"] = "champions"
         for p in room["players"]:
             players[p]["role"] = None
     return {"ok": True, "room_deleted": False}
@@ -250,11 +405,7 @@ async def leave_room(code: str, data: PlayerAction):
 
 @app.get("/room/{code}", response_class=HTMLResponse)
 async def room_page(request: Request, code: str):
-    return templates.TemplateResponse(
-    request=request,
-    name="index.html",
-    context={"room_code": code.upper()}
-)
+    return templates.TemplateResponse(request=request, name="index.html", context={"room_code": code.upper()})
 
 
 @app.exception_handler(HTTPException)
