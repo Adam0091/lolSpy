@@ -169,6 +169,12 @@ def room_code():
 def room_view(room, viewer_token: Optional[str] = None):
     plist = [players[pid] for pid in room["players"] if pid in players]
     me = next((p for p in plist if p["token"] == viewer_token), None)
+    personal_target = me.get("personal_target") if me else None
+    my_target = personal_target if room.get("crazy_event") == "different_targets" and personal_target else room
+    my_target_name = my_target.get("name") if personal_target and my_target is personal_target else my_target.get("target_name")
+    my_target_image = my_target.get("image") if personal_target and my_target is personal_target else my_target.get("target_image")
+    my_target_type = my_target.get("type") if personal_target and my_target is personal_target else my_target.get("target_type")
+    my_target_description = my_target.get("description") if personal_target and my_target is personal_target else my_target.get("target_description")
     return {
         "code": room["code"],
         "status": room["status"],
@@ -179,6 +185,8 @@ def room_view(room, viewer_token: Optional[str] = None):
         "target_description": room["target_description"] if room["status"] == "finished" else None,
         "target_category": CATEGORY_LABELS.get(room["target_type"], "") if room["status"] == "finished" else None,
         "selected_categories": room.get("selected_categories", ["champions"]),
+        "crazy_mode_enabled": bool(room.get("crazy_mode_enabled", False)),
+        "crazy_event_label": room.get("crazy_event_label") if room["status"] == "finished" else None,
         "spy_count": room["spy_count"],
         "players": [
             {
@@ -187,16 +195,17 @@ def room_view(room, viewer_token: Optional[str] = None):
                 "is_host": p["id"] == room["host_id"],
                 "is_me": p["token"] == viewer_token,
                 "role": (p["role"] if p["token"] == viewer_token and room["status"] == "playing" else None),
+                "target_name": (p.get("personal_target") or {}).get("name") if room["status"] == "finished" and room.get("crazy_event") == "different_targets" else None,
             }
             for p in plist
         ],
         "is_host": bool(me and me["id"] == room["host_id"]),
         "my_role": me["role"] if me and room["status"] == "playing" else None,
-        "my_champion": room["target_name"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_champion_image": room["target_image"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_type": room["target_type"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_description": room["target_description"] if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_category": CATEGORY_LABELS.get(room["target_type"], "") if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_champion": my_target_name if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_champion_image": my_target_image if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_type": my_target_type if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_description": my_target_description if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_target_category": CATEGORY_LABELS.get(my_target_type, "") if me and me["role"] == "champion" and room["status"] == "playing" else None,
     }
 
 
@@ -213,6 +222,7 @@ class StartGame(BaseModel):
     token: str
     spy_count: int = Field(default=1, ge=1, le=5)
     categories: list[str] = Field(default_factory=lambda: ["champions"], min_length=1, max_length=3)
+    crazy_mode: bool = False
 
 
 class PlayerAction(BaseModel):
@@ -278,6 +288,7 @@ async def create_room(data: CreateRoom):
         "code": code, "host_id": pid, "host_token": token, "status": "lobby",
         "champion": "", "champion_id": None, "target_name": "", "target_image": None,
         "target_type": "champions", "target_description": "", "selected_categories": ["champions"],
+        "crazy_mode_enabled": False, "crazy_event": None, "crazy_event_label": None,
         "spy_count": data.spy_count, "round": 0, "players": [pid]
     }
     rooms[code] = room
@@ -339,9 +350,51 @@ async def start_game(code: str, data: StartGame):
     room["selected_categories"] = categories
     room["champion"] = target["name"]
     room["champion_id"] = target.get("id")
-    chosen = set(random.sample(room["players"], data.spy_count))
+    room["crazy_mode_enabled"] = data.crazy_mode
+    room["crazy_event"] = None
+    room["crazy_event_label"] = None
     for pid in room["players"]:
-        players[pid]["role"] = "spy" if pid in chosen else "champion"
+        players[pid].pop("personal_target", None)
+
+    # Crazy mode: only 20% of enabled rounds activate a chaos scenario.
+    crazy_scenarios = []
+    if data.crazy_mode and random.random() < 0.20:
+        count = len(room["players"])
+        extra_spy_counts = [n for n in (2, 3) if n < count and n != data.spy_count]
+        if extra_spy_counts:
+            crazy_scenarios.append("extra_spies")
+        if count - 1 != data.spy_count and count - 1 not in extra_spy_counts:
+            crazy_scenarios.append("solo_spy")
+        crazy_scenarios.append("different_targets")
+        event = random.choice(crazy_scenarios)
+        room["crazy_event"] = event
+
+        if event == "different_targets":
+            # Everyone is told they are not a spy, but each gets a different object.
+            targets = random.sample(pool, count) if len(pool) >= count else [random.choice(pool) for _ in room["players"]]
+            for pid, personal_target in zip(room["players"], targets):
+                players[pid]["role"] = "champion"
+                players[pid]["personal_target"] = personal_target
+            room["target_type"] = target["type"]
+            room["target_name"] = target["name"]
+            room["target_image"] = target.get("image")
+            room["target_description"] = target.get("description", "")
+            room["crazy_event_label"] = "Хаос: у каждого игрока был свой объект"
+        else:
+            actual_spy_count = random.choice(extra_spy_counts) if event == "extra_spies" else count - 1
+            chosen = set(random.sample(room["players"], actual_spy_count))
+            for pid in room["players"]:
+                players[pid]["role"] = "spy" if pid in chosen else "champion"
+            room["spy_count"] = actual_spy_count
+            room["crazy_event_label"] = (
+                f"Хаос: вместо ожидаемого количества было {actual_spy_count} шпионов"
+                if event == "extra_spies" else
+                "Хаос: все игроки, кроме одного, оказались шпионами"
+            )
+    else:
+        chosen = set(random.sample(room["players"], data.spy_count))
+        for pid in room["players"]:
+            players[pid]["role"] = "spy" if pid in chosen else "champion"
     room["round"] += 1
     room["status"] = "playing"
     return room_view(room, data.token)
@@ -372,9 +425,13 @@ async def reset_room(code: str, data: PlayerAction):
     room["target_image"] = None
     room["target_description"] = ""
     room["target_type"] = "champions"
+    room["target_description"] = ""
+    room["crazy_event"] = None
+    room["crazy_event_label"] = None
     for pid in room["players"]:
         if pid in players:
             players[pid]["role"] = None
+            players[pid].pop("personal_target", None)
     return room_view(room, data.token)
 
 
@@ -398,8 +455,12 @@ async def leave_room(code: str, data: PlayerAction):
         room["target_image"] = None
         room["target_description"] = ""
         room["target_type"] = "champions"
+        room["target_description"] = ""
+        room["crazy_event"] = None
+        room["crazy_event_label"] = None
         for p in room["players"]:
             players[p]["role"] = None
+            players[p].pop("personal_target", None)
     return {"ok": True, "room_deleted": False}
 
 
