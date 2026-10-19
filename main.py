@@ -154,8 +154,100 @@ async def load_game_data():
 
 rooms = {}
 players = {}
-# room: {code, host_token, status, champion, spy_count, round, players:[player_id,...]}
+# room: {code, host_token, status, champion, spy_count, round, players:[player_id,...],
+#        turn_order, current_turn_index, circle, max_circles, early_vote_requests, votes, vote_results}
 # player: {id, room_code, name, token, role, connected}
+MAX_CIRCLES = 5
+
+
+def init_rolling(room):
+    """Подготовить фазу бросков кубика для определения порядка ходов."""
+    room["turn_order"] = []
+    room["current_turn_index"] = 0
+    room["circle"] = 0
+    room["max_circles"] = MAX_CIRCLES
+    room["early_vote_requests"] = []
+    room["votes"] = {}
+    room["vote_results"] = None
+    room["dice_rolls"] = {}
+
+
+def begin_discussion(room):
+    """Запустить обсуждение после того, как порядок ходов уже определён."""
+    room["current_turn_index"] = 0
+    room["circle"] = 1
+    room["max_circles"] = MAX_CIRCLES
+    room["early_vote_requests"] = []
+    room["votes"] = {}
+    room["vote_results"] = None
+    room["status"] = "playing"
+
+
+def finalize_turn_order_from_dice(room):
+    """Выстроить порядок ходов: больший бросок ходит раньше. Ничья — случайный тай-брейк."""
+    rolls = room.get("dice_rolls") or {}
+    ranked = []
+    for pid in room["players"]:
+        entry = rolls.get(pid)
+        if not entry:
+            continue
+        ranked.append((entry["value"], entry.get("tiebreak", 0), pid))
+    ranked.sort(key=lambda item: (-item[0], -item[1]))
+    room["turn_order"] = [pid for _, _, pid in ranked]
+    begin_discussion(room)
+
+
+def clear_discussion(room):
+    room["turn_order"] = []
+    room["current_turn_index"] = 0
+    room["circle"] = 0
+    room["max_circles"] = MAX_CIRCLES
+    room["early_vote_requests"] = []
+    room["votes"] = {}
+    room["vote_results"] = None
+    room["dice_rolls"] = {}
+
+
+def start_voting(room):
+    room["status"] = "voting"
+    room["early_vote_requests"] = []
+    room["votes"] = {}
+    room["vote_results"] = None
+
+
+def finish_with_votes(room):
+    """Подсчитать голоса, раскрыть шпионов и завершить раунд."""
+    tally = {pid: 0 for pid in room["players"]}
+    nobody_votes = 0
+    for accused_list in room["votes"].values():
+        if not accused_list:
+            nobody_votes += 1
+            continue
+        for accused_id in accused_list:
+            if accused_id in tally:
+                tally[accused_id] += 1
+    actual_spies = [
+        {"id": pid, "name": players[pid]["name"]}
+        for pid in room["players"]
+        if pid in players and players[pid].get("role") == "spy"
+    ]
+    accused = [
+        {"id": pid, "name": players[pid]["name"], "votes": tally[pid]}
+        for pid in room["players"]
+        if pid in players and tally[pid] > 0
+    ]
+    accused.sort(key=lambda x: (-x["votes"], x["name"]))
+    room["vote_results"] = {
+        "accused": accused,
+        "nobody_votes": nobody_votes,
+        "actual_spies": actual_spies,
+        "total_voters": len(room["votes"]),
+    }
+    room["status"] = "finished"
+
+
+def majority_threshold(player_count: int) -> int:
+    return player_count // 2 + 1
 
 
 def room_code():
@@ -175,6 +267,25 @@ def room_view(room, viewer_token: Optional[str] = None):
     my_target_image = my_target.get("image") if personal_target and my_target is personal_target else my_target.get("target_image")
     my_target_type = my_target.get("type") if personal_target and my_target is personal_target else my_target.get("target_type")
     my_target_description = my_target.get("description") if personal_target and my_target is personal_target else my_target.get("target_description")
+    turn_order = room.get("turn_order") or []
+    current_idx = room.get("current_turn_index", 0)
+    current_turn_id = turn_order[current_idx] if turn_order and room["status"] == "playing" else None
+    current_turn_player = players.get(current_turn_id) if current_turn_id else None
+    early_requests = room.get("early_vote_requests") or []
+    show_role = room["status"] in ("rolling", "playing", "voting")
+    votes = room.get("votes") or {}
+    dice_rolls = room.get("dice_rolls") or {}
+    turn_order_index = {pid: i for i, pid in enumerate(turn_order)}
+    turn_order_view = [
+        {
+            "id": pid,
+            "name": players[pid]["name"],
+            "dice": (dice_rolls.get(pid) or {}).get("value"),
+            "position": i + 1,
+        }
+        for i, pid in enumerate(turn_order)
+        if pid in players
+    ]
     return {
         "code": room["code"],
         "status": room["status"],
@@ -188,24 +299,47 @@ def room_view(room, viewer_token: Optional[str] = None):
         "crazy_mode_enabled": bool(room.get("crazy_mode_enabled", False)),
         "crazy_event_label": room.get("crazy_event_label") if room["status"] == "finished" else None,
         "spy_count": room["spy_count"],
+        "circle": room.get("circle", 0),
+        "max_circles": room.get("max_circles", MAX_CIRCLES),
+        "current_turn_player_id": current_turn_id,
+        "current_turn_player_name": current_turn_player["name"] if current_turn_player else None,
+        "is_my_turn": bool(me and current_turn_id == me["id"]),
+        "early_vote_count": len(early_requests),
+        "early_vote_needed": majority_threshold(len(plist)) if plist else 1,
+        "i_requested_early_vote": bool(me and me["id"] in early_requests),
+        "i_have_voted": bool(me and me["id"] in votes),
+        "votes_cast": len(votes),
+        "votes_needed": len(plist),
+        "vote_results": room.get("vote_results") if room["status"] == "finished" else None,
+        "i_have_rolled": bool(me and me["id"] in dice_rolls),
+        "my_dice": (dice_rolls.get(me["id"]) or {}).get("value") if me else None,
+        "dice_rolled_count": len(dice_rolls),
+        "dice_needed": len(plist),
+        "turn_order": turn_order_view if room["status"] in ("playing", "voting", "finished") else [],
         "players": [
             {
                 "id": p["id"],
                 "name": p["name"],
                 "is_host": p["id"] == room["host_id"],
                 "is_me": p["token"] == viewer_token,
-                "role": (p["role"] if p["token"] == viewer_token and room["status"] == "playing" else None),
+                "is_current_turn": p["id"] == current_turn_id,
+                "has_voted": p["id"] in votes,
+                "requested_early_vote": p["id"] in early_requests,
+                "dice": (dice_rolls.get(p["id"]) or {}).get("value"),
+                "turn_position": turn_order_index.get(p["id"], -1) + 1 if p["id"] in turn_order_index else None,
+                "role": (p["role"] if p["token"] == viewer_token and show_role else None),
+                "was_spy": p["role"] == "spy" if room["status"] == "finished" else None,
                 "target_name": (p.get("personal_target") or {}).get("name") if room["status"] == "finished" and room.get("crazy_event") == "different_targets" else None,
             }
             for p in plist
         ],
         "is_host": bool(me and me["id"] == room["host_id"]),
-        "my_role": me["role"] if me and room["status"] == "playing" else None,
-        "my_champion": my_target_name if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_champion_image": my_target_image if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_type": my_target_type if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_description": my_target_description if me and me["role"] == "champion" and room["status"] == "playing" else None,
-        "my_target_category": CATEGORY_LABELS.get(my_target_type, "") if me and me["role"] == "champion" and room["status"] == "playing" else None,
+        "my_role": me["role"] if me and show_role else None,
+        "my_champion": my_target_name if me and me["role"] == "champion" and show_role else None,
+        "my_champion_image": my_target_image if me and me["role"] == "champion" and show_role else None,
+        "my_target_type": my_target_type if me and me["role"] == "champion" and show_role else None,
+        "my_target_description": my_target_description if me and me["role"] == "champion" and show_role else None,
+        "my_target_category": CATEGORY_LABELS.get(my_target_type, "") if me and me["role"] == "champion" and show_role else None,
     }
 
 
@@ -227,6 +361,11 @@ class StartGame(BaseModel):
 
 class PlayerAction(BaseModel):
     token: str
+
+
+class CastVote(BaseModel):
+    token: str
+    accused_ids: list[str] = Field(default_factory=list)
 
 
 def clean_name(name: str) -> str:
@@ -289,7 +428,9 @@ async def create_room(data: CreateRoom):
         "champion": "", "champion_id": None, "target_name": "", "target_image": None,
         "target_type": "champions", "target_description": "", "selected_categories": ["champions"],
         "crazy_mode_enabled": False, "crazy_event": None, "crazy_event_label": None,
-        "spy_count": data.spy_count, "round": 0, "players": [pid]
+        "spy_count": data.spy_count, "round": 0, "players": [pid],
+        "turn_order": [], "current_turn_index": 0, "circle": 0, "max_circles": MAX_CIRCLES,
+        "early_vote_requests": [], "votes": {}, "vote_results": None, "dice_rolls": {},
     }
     rooms[code] = room
     players[pid] = {"id": pid, "room_code": code, "name": name, "token": token, "role": None}
@@ -396,19 +537,97 @@ async def start_game(code: str, data: StartGame):
         for pid in room["players"]:
             players[pid]["role"] = "spy" if pid in chosen else "champion"
     room["round"] += 1
-    room["status"] = "playing"
+    init_rolling(room)
+    room["status"] = "rolling"
+    return room_view(room, data.token)
+
+
+@app.post("/api/rooms/{code}/roll-dice")
+async def roll_dice(code: str, data: PlayerAction):
+    room = get_room(code)
+    player = get_player(room, data.token)
+    if room["status"] != "rolling":
+        raise HTTPException(400, "Сейчас нельзя бросать кубик.")
+    rolls = room.setdefault("dice_rolls", {})
+    if player["id"] in rolls:
+        raise HTTPException(400, "Вы уже бросили кубик.")
+    value = random.randint(1, 6)
+    rolls[player["id"]] = {"value": value, "tiebreak": random.random()}
+    if len(rolls) >= len(room["players"]):
+        finalize_turn_order_from_dice(room)
+    return room_view(room, data.token)
+
+
+@app.post("/api/rooms/{code}/pass-turn")
+async def pass_turn(code: str, data: PlayerAction):
+    room = get_room(code)
+    player = get_player(room, data.token)
+    if room["status"] != "playing":
+        raise HTTPException(400, "Передать ход можно только во время обсуждения.")
+    turn_order = room.get("turn_order") or []
+    if not turn_order:
+        raise HTTPException(400, "Порядок ходов ещё не задан.")
+    current_id = turn_order[room["current_turn_index"]]
+    if player["id"] != current_id:
+        raise HTTPException(403, "Сейчас не ваш ход.")
+    next_index = room["current_turn_index"] + 1
+    if next_index >= len(turn_order):
+        if room["circle"] >= room.get("max_circles", MAX_CIRCLES):
+            start_voting(room)
+            return room_view(room, data.token)
+        room["circle"] += 1
+        room["current_turn_index"] = 0
+    else:
+        room["current_turn_index"] = next_index
+    return room_view(room, data.token)
+
+
+@app.post("/api/rooms/{code}/request-vote")
+async def request_early_vote(code: str, data: PlayerAction):
+    room = get_room(code)
+    player = get_player(room, data.token)
+    if room["status"] != "playing":
+        raise HTTPException(400, "Предложить голосование можно только во время обсуждения.")
+    requests = room.setdefault("early_vote_requests", [])
+    if player["id"] in requests:
+        requests.remove(player["id"])
+    else:
+        requests.append(player["id"])
+    if len(requests) >= majority_threshold(len(room["players"])):
+        start_voting(room)
+    return room_view(room, data.token)
+
+
+@app.post("/api/rooms/{code}/cast-vote")
+async def cast_vote(code: str, data: CastVote):
+    room = get_room(code)
+    player = get_player(room, data.token)
+    if room["status"] != "voting":
+        raise HTTPException(400, "Сейчас голосование не идёт.")
+    if player["id"] in room.get("votes", {}):
+        raise HTTPException(400, "Вы уже проголосовали.")
+    accused = list(dict.fromkeys(data.accused_ids))
+    valid_ids = set(room["players"])
+    if any(aid not in valid_ids for aid in accused):
+        raise HTTPException(400, "Можно голосовать только за игроков этой комнаты.")
+    if player["id"] in accused:
+        raise HTTPException(400, "Нельзя голосовать за себя.")
+    room.setdefault("votes", {})[player["id"]] = accused
+    if len(room["votes"]) >= len(room["players"]):
+        finish_with_votes(room)
     return room_view(room, data.token)
 
 
 @app.post("/api/rooms/{code}/reveal")
 async def reveal_champion(code: str, data: PlayerAction):
+    """Ведущий может принудительно завершить обсуждение и сразу открыть голосование."""
     room = get_room(code)
     player = get_player(room, data.token)
     if player["id"] != room["host_id"]:
-        raise HTTPException(403, "Только создатель комнаты может завершить раунд.")
+        raise HTTPException(403, "Только создатель комнаты может принудительно открыть голосование.")
     if room["status"] != "playing":
-        raise HTTPException(400, "Сейчас нет активной игры.")
-    room["status"] = "finished"
+        raise HTTPException(400, "Сейчас нет активного обсуждения.")
+    start_voting(room)
     return room_view(room, data.token)
 
 
@@ -425,9 +644,9 @@ async def reset_room(code: str, data: PlayerAction):
     room["target_image"] = None
     room["target_description"] = ""
     room["target_type"] = "champions"
-    room["target_description"] = ""
     room["crazy_event"] = None
     room["crazy_event_label"] = None
+    clear_discussion(room)
     for pid in room["players"]:
         if pid in players:
             players[pid]["role"] = None
@@ -448,16 +667,16 @@ async def leave_room(code: str, data: PlayerAction):
     if room["host_id"] == pid:
         room["host_id"] = room["players"][0]
         room["host_token"] = players[room["host_id"]]["token"]
-    if room["status"] == "playing":
+    if room["status"] in ("rolling", "playing", "voting"):
         room["status"] = "lobby"
         room["champion"] = ""
         room["target_name"] = ""
         room["target_image"] = None
         room["target_description"] = ""
         room["target_type"] = "champions"
-        room["target_description"] = ""
         room["crazy_event"] = None
         room["crazy_event_label"] = None
+        clear_discussion(room)
         for p in room["players"]:
             players[p]["role"] = None
             players[p].pop("personal_target", None)
