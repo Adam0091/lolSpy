@@ -572,11 +572,15 @@
     }
 
     #passTurnBtn {
-      padding: 20px 18px;
-      font-size: 18px;
-      letter-spacing: .04em;
-      margin-top: 14px;
-      min-height: 64px
+      display: block;
+      width: min(100%, 340px);
+      margin: 18px auto 8px;
+      padding: 26px 24px;
+      font-size: 22px;
+      letter-spacing: .06em;
+      min-height: 84px;
+      border-radius: 14px;
+      text-align: center
     }
 
     @media(max-width:720px) {
@@ -749,8 +753,8 @@
         const gain = ctx.createGain();
         gain.connect(ctx.destination);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.06, now + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        gain.gain.exponentialRampToValueAtTime(0.28, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
         const osc = ctx.createOscillator();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(523.25, now);
