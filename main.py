@@ -47,6 +47,32 @@ CHAMPION_DATA = [{"id": None, "name": name, "title": "", "image": None} for name
 SKIN_DATA = []
 ITEM_DATA = []
 CATEGORY_LABELS = {"champions": "Чемпионы", "skins": "Скины", "items": "Предметы"}
+CATEGORY_HINT_LABELS = {"champions": "Чемпион", "skins": "Скин", "items": "Предмет"}
+
+
+def build_spy_hints(target, pool=None):
+    """Подсказка шпиону: тип объекта, случайная буква; для предметов — ещё ценовой диапазон."""
+    name = (target.get("name") or "").strip()
+    target_type = target.get("type") or "champions"
+    letters = [ch for ch in name if ch.isalpha()]
+    random_letter = random.choice(letters).upper() if letters else "?"
+    hints = {
+        "category": CATEGORY_HINT_LABELS.get(target_type, CATEGORY_LABELS.get(target_type, target_type)),
+        "random_letter": random_letter,
+        "extra": None,
+    }
+    if target_type == "items":
+        price = target.get("price")
+        if isinstance(price, int):
+            if price >= 3000:
+                hints["extra"] = "Дорогой предмет (от 3000 золота)"
+            elif price >= 1500:
+                hints["extra"] = "Предмет средней цены (1500–2999)"
+            elif price > 0:
+                hints["extra"] = "Недорогой предмет (до 1500)"
+            else:
+                hints["extra"] = "Предмет без цены в магазине"
+    return hints
 
 
 def champion_image_url(champion_id):
@@ -88,8 +114,10 @@ async def load_game_data():
             response.raise_for_status()
             raw_champions = response.json().get("data", {})
             champions = [
-                {"id": item["id"], "name": item["name"], "title": item.get("title", ""),
-                 "image": champion_image_url(item["id"])}
+                {
+                    "id": item["id"], "name": item["name"], "title": item.get("title", ""),
+                    "image": champion_image_url(item["id"]),
+                }
                 for item in raw_champions.values() if item.get("id") and item.get("name")
             ]
             if champions:
@@ -146,6 +174,7 @@ async def load_game_data():
                     "image": item_image_url(item_id, version),
                     "description": description or item.get("plaintext") or "Описание отсутствует.",
                     "price": item.get("gold", {}).get("total", 0),
+                    "tags": item.get("tags") or [],
                 })
             if loaded_items:
                 ITEM_DATA = loaded_items
@@ -340,6 +369,7 @@ def room_view(room, viewer_token: Optional[str] = None):
         "my_target_type": my_target_type if me and me["role"] == "champion" and show_role else None,
         "my_target_description": my_target_description if me and me["role"] == "champion" and show_role else None,
         "my_target_category": CATEGORY_LABELS.get(my_target_type, "") if me and me["role"] == "champion" and show_role else None,
+        "spy_hints": room.get("spy_hints") if me and me["role"] == "spy" and show_role else None,
     }
 
 
@@ -431,6 +461,7 @@ async def create_room(data: CreateRoom):
         "spy_count": data.spy_count, "round": 0, "players": [pid],
         "turn_order": [], "current_turn_index": 0, "circle": 0, "max_circles": MAX_CIRCLES,
         "early_vote_requests": [], "votes": {}, "vote_results": None, "dice_rolls": {},
+        "spy_hints": None,
     }
     rooms[code] = room
     players[pid] = {"id": pid, "room_code": code, "name": name, "token": token, "role": None}
@@ -494,6 +525,7 @@ async def start_game(code: str, data: StartGame):
     room["crazy_mode_enabled"] = data.crazy_mode
     room["crazy_event"] = None
     room["crazy_event_label"] = None
+    room["spy_hints"] = build_spy_hints(target, pool)
     for pid in room["players"]:
         players[pid].pop("personal_target", None)
 
@@ -521,6 +553,7 @@ async def start_game(code: str, data: StartGame):
             room["target_image"] = target.get("image")
             room["target_description"] = target.get("description", "")
             room["crazy_event_label"] = "Хаос: у каждого игрока был свой объект"
+            room["spy_hints"] = None
         else:
             actual_spy_count = random.choice(extra_spy_counts) if event == "extra_spies" else count - 1
             chosen = set(random.sample(room["players"], actual_spy_count))
@@ -646,6 +679,7 @@ async def reset_room(code: str, data: PlayerAction):
     room["target_type"] = "champions"
     room["crazy_event"] = None
     room["crazy_event_label"] = None
+    room["spy_hints"] = None
     clear_discussion(room)
     for pid in room["players"]:
         if pid in players:
@@ -676,6 +710,7 @@ async def leave_room(code: str, data: PlayerAction):
         room["target_type"] = "champions"
         room["crazy_event"] = None
         room["crazy_event_label"] = None
+        room["spy_hints"] = None
         clear_discussion(room)
         for p in room["players"]:
             players[p]["role"] = None

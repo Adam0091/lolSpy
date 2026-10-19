@@ -541,6 +541,44 @@
       min-width: 1.5em
     }
 
+    .spy-hints {
+      width: 100%;
+      max-width: 360px;
+      margin-top: 16px;
+      text-align: left;
+      padding: 12px 14px;
+      background: #1a1218;
+      border: 1px solid #6a333b;
+      border-radius: 10px
+    }
+
+    .spy-hints .eyebrow {
+      color: #ff8c93
+    }
+
+    .spy-hints ul.meta {
+      list-style: none;
+      padding: 0;
+      margin: 10px 0 0;
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: #d7c0c3
+    }
+
+    .spy-hints ul.meta strong {
+      color: var(--gold2);
+      font-weight: 700
+    }
+
+    #passTurnBtn {
+      padding: 20px 18px;
+      font-size: 18px;
+      letter-spacing: .04em;
+      margin-top: 14px;
+      min-height: 64px
+    }
+
     @media(max-width:720px) {
 
       .layout,
@@ -701,7 +739,28 @@
   </div>
   <script>
     const $ = id => document.getElementById(id);
-    let roomCode = null, playerToken = null, playerId = null, pollTimer = null, lastStatus = null;
+    let roomCode = null, playerToken = null, playerId = null, pollTimer = null, lastStatus = null, hadMyTurn = false;
+    function playTurnSound() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const now = ctx.currentTime;
+        const gain = ctx.createGain();
+        gain.connect(ctx.destination);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.06, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.exponentialRampToValueAtTime(392, now + 0.28);
+        osc.connect(gain);
+        osc.start(now);
+        osc.stop(now + 0.35);
+        osc.onended = () => ctx.close().catch(() => {});
+      } catch { }
+    }
     function setError(id, msg) { const el = $(id); el.textContent = msg; el.classList.toggle('show', !!msg); }
     async function api(url, method = 'GET', body = null) {
       const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -821,6 +880,8 @@
 
       $('turnControls').classList.toggle('hidden', r.status !== 'playing');
       if (r.status === 'playing') {
+        if (r.is_my_turn && !hadMyTurn) playTurnSound();
+        hadMyTurn = !!r.is_my_turn;
         $('turnTitle').textContent = `Круг ${r.circle} из ${r.max_circles}`;
         $('turnHint').textContent = r.is_my_turn
           ? 'Скажи ассоциацию к секретному слову вслух, затем нажми «Передать ход».'
@@ -830,6 +891,8 @@
         $('requestVoteBtn').textContent = r.i_requested_early_vote
           ? `Отменить предложение (${r.early_vote_count}/${r.early_vote_needed})`
           : `Предложить голосование (${r.early_vote_count}/${r.early_vote_needed})`;
+      } else {
+        hadMyTurn = false;
       }
 
       $('voteControls').classList.toggle('hidden', !(r.status === 'voting' && !r.i_have_voted));
@@ -845,8 +908,17 @@
         $('roleSub').textContent = 'Роли случайно распределятся при старте. Не показывай экран другим игрокам.';
       } else if (r.status === 'rolling' || r.status === 'playing' || r.status === 'voting') {
         if (r.my_role === 'spy') {
-          $('roleCard').innerHTML = '<div class="role-icon spy">◈</div><h3 class="spy">Ты — шпион</h3><p>Ты не знаешь загаданного объекта. На своём ходу говори осторожно, слушай других и не выдай себя.</p>';
-          $('roleSub').textContent = r.status === 'rolling' ? 'Сначала брось кубик — определим порядок ходов.' : 'Твоя роль видна только тебе.';
+          const hints = r.spy_hints;
+          let hintsHtml = '';
+          if (hints) {
+            hintsHtml = `<div class="spy-hints"><div class="eyebrow">Подсказки</div><ul class="meta">`
+              + `<li>Это: <strong>${escapeHtml(hints.category || '—')}</strong></li>`
+              + `<li>В имени есть буква: <strong>${escapeHtml(hints.random_letter || '?')}</strong></li>`
+              + (hints.extra ? `<li>${escapeHtml(hints.extra)}</li>` : '')
+              + `</ul></div>`;
+          }
+          $('roleCard').innerHTML = '<div class="role-icon spy">◈</div><h3 class="spy">Ты — шпион</h3><p>Ты не знаешь точного объекта. Используй подсказки, слушай других и не выдай себя.</p>' + hintsHtml;
+          $('roleSub').textContent = r.status === 'rolling' ? 'Сначала брось кубик — определим порядок ходов.' : 'Подсказки видны только тебе.';
         } else {
           const label = r.my_target_category || 'Загаданный объект';
           const art = r.my_champion_image ? `<img class="champion-art" src="${escapeHtml(r.my_champion_image)}" alt="${escapeHtml(r.my_champion || 'Загаданный объект')}" loading="eager">` : '';
